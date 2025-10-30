@@ -1,5 +1,5 @@
 // netlify/functions/generate-image.js
-const MODEL = "imagen-3.0";
+const MODEL = "imagen-3.0"; // مؤقتًا هنجرّبها، ولو فيه صلاحيات نبدّل لاحقًا
 
 exports.handler = async (event) => {
   // CORS preflight
@@ -35,6 +35,8 @@ exports.handler = async (event) => {
     });
 
     const text = await resp.text();
+
+    // مهم: رجّع ستاتس + النص كما هو علشان تشوف السبب الحقيقي في الواجهة
     return {
       statusCode: resp.status,
       headers: {
