@@ -1,5 +1,7 @@
 // netlify/functions/generate-image.js
-const MODEL = "imagen-3.0"; // مؤقتًا هنجرّبها، ولو فيه صلاحيات نبدّل لاحقًا
+
+// تقدر تغيّر الموديل لـ "imagen-3.0-generate-002" لو حابب، بنفس الأسلوب:
+const MODEL = "imagen-4.0-generate-001";
 
 exports.handler = async (event) => {
   // CORS preflight
@@ -25,18 +27,36 @@ exports.handler = async (event) => {
   }
 
   try {
-    const payload = JSON.parse(event.body || "{}");
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
+    const { prompt, config } = JSON.parse(event.body || "{}");
+
+    if (!prompt || typeof prompt !== "string") {
+      return { statusCode: 400, body: JSON.stringify({ error: "Missing prompt" }) };
+    }
+
+    // نجهّز جسم الطلب بصيغة Imagen REST (predict)
+    const body = {
+      instances: [{ prompt }],
+      parameters: {
+        // قيم افتراضية مع إمكانية override من الواجهة
+        sampleCount: 1,
+        aspectRatio: "3:4",          // "1:1","3:4","4:3","9:16","16:9"
+        personGeneration: "allow_adult", // "dont_allow","allow_adult" (الـ "allow_all" محظور في MENA)
+        ...(config || {})
+      }
+    };
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:predict`;
 
     const resp = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
+      headers: {
+        "x-goog-api-key": API_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
     });
 
-    const text = await resp.text();
-
-    // مهم: رجّع ستاتس + النص كما هو علشان تشوف السبب الحقيقي في الواجهة
+    const text = await resp.text(); // رجّع الرد كما هو (نجاح/خطأ) عشان الواجهة تعرضه
     return {
       statusCode: resp.status,
       headers: {
