@@ -1,7 +1,8 @@
 // netlify/functions/generate-image.js
-
-// تقدر تغيّر الموديل لـ "imagen-3.0-generate-002" لو حابب، بنفس الأسلوب:
-const MODEL = "imagen-4.0-generate-001";
+// CommonJS for Netlify
+const T2I_MODEL   = process.env.IMAGEN_T2I_MODEL   || "imagen-4.0-generate-001";
+// ملاحظة: غيّر السطر التالي لاسم الموديل الصحيح لما جوجل يفعّل Img2Img عندك
+const IMG2IMG_MODEL = process.env.IMAGEN_IMG2IMG_MODEL || "imagen-3.0-edit-001";
 
 exports.handler = async (event) => {
   // CORS preflight
@@ -27,25 +28,55 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { prompt, config } = JSON.parse(event.body || "{}");
+    const { mode = "t2i", prompt, config, referenceImage } = JSON.parse(event.body || "{}");
 
     if (!prompt || typeof prompt !== "string") {
       return { statusCode: 400, body: JSON.stringify({ error: "Missing prompt" }) };
     }
 
-    // نجهّز جسم الطلب بصيغة Imagen REST (predict)
-    const body = {
-      instances: [{ prompt }],
-      parameters: {
-        // قيم افتراضية مع إمكانية override من الواجهة
-        sampleCount: 1,
-        aspectRatio: "3:4",          // "1:1","3:4","4:3","9:16","16:9"
-        personGeneration: "allow_adult", // "dont_allow","allow_adult" (الـ "allow_all" محظور في MENA)
-        ...(config || {})
-      }
-    };
+    let model = T2I_MODEL;
+    let body  = null;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:predict`;
+    if (mode === "img2img") {
+      // ==== Img2Img (مفعّل عندك لاحقًا) ====
+      if (!referenceImage?.data || !referenceImage?.mimeType) {
+        return { statusCode: 400, body: JSON.stringify({ error: "Missing referenceImage {data,mimeType}" }) };
+      }
+
+      model = IMG2IMG_MODEL;
+
+      // صيغة شائعة لواجهات Imagen Img2Img عبر :predict
+      // ⚠️ قد تختلف المفاتيح بدِقّة حسب الإصدار الذي سيفتح لك — عدّلها إن لزم عند التفعيل.
+      body = {
+        instances: [{
+          prompt,
+          referenceImage: {
+            // بعض الإصدارات تقبل bytesBase64Encoded مباشرةً:
+            bytesBase64Encoded: referenceImage.data,
+            mimeType: referenceImage.mimeType
+          },
+          // تحكم في مدى الالتزام بالصورة مقابل البرومبت (0..1)
+          guidanceStrength: config?.guidanceStrength ?? 0.6
+        }],
+        parameters: {
+          sampleCount: config?.sampleCount ?? 1,
+          aspectRatio:  config?.aspectRatio  ?? "3:4",
+          personGeneration: config?.personGeneration ?? "allow_adult"
+        }
+      };
+    } else {
+      // ==== Text→Image ====
+      body = {
+        instances: [{ prompt }],
+        parameters: {
+          sampleCount: config?.sampleCount ?? 1,
+          aspectRatio:  config?.aspectRatio  ?? "3:4",
+          personGeneration: config?.personGeneration ?? "allow_adult"
+        }
+      };
+    }
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:predict`;
 
     const resp = await fetch(url, {
       method: "POST",
@@ -56,7 +87,7 @@ exports.handler = async (event) => {
       body: JSON.stringify(body)
     });
 
-    const text = await resp.text(); // رجّع الرد كما هو (نجاح/خطأ) عشان الواجهة تعرضه
+    const text = await resp.text();
     return {
       statusCode: resp.status,
       headers: {
